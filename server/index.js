@@ -44,7 +44,11 @@ app.get('*', (req, res) => {
   });
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 Tasks Server running on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  // Start Server
+  app.listen(PORT, () => {
+    console.log(`🚀 Tasks Server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
