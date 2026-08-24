@@ -116,6 +116,7 @@ function MainApp() {
   };
 
   const handleDeleteTrack = async (id) => {
+    if (!window.confirm(t.confirmDeleteTrack || 'Are you sure you want to delete this track?')) return;
     try {
       const res = await api.deleteCategory(id);
       if (res.success) {
@@ -177,6 +178,7 @@ function MainApp() {
   };
 
   const handleDeleteTask = async (id) => {
+    if (!window.confirm(t.confirmDeleteTask || 'Are you sure you want to delete this task?')) return;
     try {
       const res = await api.deleteTask(id);
       if (res.success) {
@@ -248,6 +250,7 @@ function MainApp() {
   };
 
   const handleDeleteHabit = async (id) => {
+    if (!window.confirm(t.confirmDeleteHabit || 'Are you sure you want to delete this habit?')) return;
     try {
       const res = await api.deleteHabit(id);
       if (res.success) {

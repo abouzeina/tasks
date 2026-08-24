@@ -130,5 +130,8 @@ export const en = {
   themeLight: 'Light Mode',
   language: 'Language',
   langArabic: 'العربية',
-  langEnglish: 'English'
+  langEnglish: 'English',
+  confirmDeleteTask: 'Are you sure you want to delete this task? This action cannot be undone.',
+  confirmDeleteHabit: 'Are you sure you want to delete this habit and all its logs?',
+  confirmDeleteTrack: 'Are you sure you want to delete this track?'
 };

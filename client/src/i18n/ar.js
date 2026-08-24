@@ -130,5 +130,8 @@ export const ar = {
   themeLight: 'الوضع الفاتح',
   language: 'اللغة',
   langArabic: 'العربية',
-  langEnglish: 'English'
+  langEnglish: 'English',
+  confirmDeleteTask: 'هل أنت متأكد من حذف هذه المهمة؟ لا يمكن التراجع عن هذا الإجراء.',
+  confirmDeleteHabit: 'هل أنت متأكد من حذف هذه العادة وسجلاتها؟',
+  confirmDeleteTrack: 'هل أنت متأكد من حذف هذا المسار؟'
 };
