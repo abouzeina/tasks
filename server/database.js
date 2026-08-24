@@ -7,11 +7,24 @@ let dbPath = localDbPath;
 
 if (process.env.VERCEL) {
   const tmpDbPath = path.join('/tmp', 'tasks.db');
-  if (!fs.existsSync(tmpDbPath) && fs.existsSync(localDbPath)) {
+  if (fs.existsSync(localDbPath)) {
     try {
-      fs.copyFileSync(localDbPath, tmpDbPath);
+      let shouldCopy = !fs.existsSync(tmpDbPath);
+      if (!shouldCopy) {
+        try {
+          const checkDb = new Database(tmpDbPath);
+          const c = checkDb.prepare('SELECT COUNT(*) as cnt FROM tasks').get()?.cnt || 0;
+          checkDb.close();
+          if (c <= 3) shouldCopy = true;
+        } catch (_) {
+          shouldCopy = true;
+        }
+      }
+      if (shouldCopy) {
+        fs.copyFileSync(localDbPath, tmpDbPath);
+      }
     } catch (e) {
-      console.error('Could not copy initial database to /tmp', e);
+      console.error('Could not sync initial database to /tmp', e);
     }
   }
   dbPath = tmpDbPath;
