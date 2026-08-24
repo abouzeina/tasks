@@ -6,13 +6,10 @@ client/node_modules/
 client/dist/
 dist/
 
-# SQLite Database & Local Data
-server/tasks.db
+# SQLite Database temporary journals (keep initial tasks.db)
 server/tasks.db-journal
 server/tasks.db-wal
 server/tasks.db-shm
-*.db
-*.sqlite
 
 # Environment variables
 .env

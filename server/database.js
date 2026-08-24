@@ -1,9 +1,22 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const dbPath = process.env.VERCEL 
-  ? path.join('/tmp', 'tasks.db') 
-  : path.join(__dirname, 'tasks.db');
+const localDbPath = path.join(__dirname, 'tasks.db');
+let dbPath = localDbPath;
+
+if (process.env.VERCEL) {
+  const tmpDbPath = path.join('/tmp', 'tasks.db');
+  if (!fs.existsSync(tmpDbPath) && fs.existsSync(localDbPath)) {
+    try {
+      fs.copyFileSync(localDbPath, tmpDbPath);
+    } catch (e) {
+      console.error('Could not copy initial database to /tmp', e);
+    }
+  }
+  dbPath = tmpDbPath;
+}
+
 const db = new Database(dbPath);
 
 // Enable foreign keys and WAL mode for better performance
