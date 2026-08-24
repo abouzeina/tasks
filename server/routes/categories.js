@@ -1,30 +1,41 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../db');
 const crypto = require('crypto');
 
 // GET /api/categories (returns all tracks with stats)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const categories = db.prepare('SELECT * FROM categories').all();
+    const categories = await db.query('SELECT * FROM categories');
 
-    const getStats = db.prepare(`
+    const tasksStats = await db.query(`
       SELECT 
+        category_id,
         COUNT(id) as total_tasks,
         SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed_tasks
       FROM tasks
-      WHERE category_id = ?
+      WHERE category_id IS NOT NULL
+      GROUP BY category_id
     `);
+    const tasksStatMap = {};
+    for (const ts of tasksStats) {
+      tasksStatMap[ts.category_id] = ts;
+    }
 
-    const getHabitsCount = db.prepare(`
-      SELECT COUNT(id) as total_habits
+    const habitsStats = await db.query(`
+      SELECT category_id, COUNT(id) as total_habits
       FROM habits
-      WHERE category_id = ?
+      WHERE category_id IS NOT NULL
+      GROUP BY category_id
     `);
+    const habitsStatMap = {};
+    for (const hs of habitsStats) {
+      habitsStatMap[hs.category_id] = hs;
+    }
 
     const enrichedCategories = categories.map(cat => {
-      const taskStat = getStats.get(cat.id);
-      const habitStat = getHabitsCount.get(cat.id);
+      const taskStat = tasksStatMap[cat.id] || {};
+      const habitStat = habitsStatMap[cat.id] || {};
 
       const totalTasks = taskStat.total_tasks || 0;
       const completedTasks = taskStat.completed_tasks || 0;
@@ -49,7 +60,7 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/categories (create new track)
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name_ar, name_en, color = '#3b82f6', icon = 'Layers' } = req.body;
     if (!name_ar && !name_en) {
@@ -60,12 +71,12 @@ router.post('/', (req, res) => {
     const finalNameAr = name_ar ? name_ar.trim() : name_en.trim();
     const finalNameEn = name_en ? name_en.trim() : name_ar.trim();
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO categories (id, name_ar, name_en, color, icon)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, finalNameAr, finalNameEn, color, icon);
+    `, [id, finalNameAr, finalNameEn, color, icon]);
 
-    const created = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+    const created = await db.queryOne('SELECT * FROM categories WHERE id = ?', [id]);
     res.status(201).json({
       success: true,
       category: {
@@ -84,32 +95,32 @@ router.post('/', (req, res) => {
 });
 
 // PUT /api/categories/:id (update track)
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name_ar, name_en, color, icon } = req.body;
 
-    const existing = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+    const existing = await db.queryOne('SELECT * FROM categories WHERE id = ?', [id]);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Track not found' });
     }
 
-    db.prepare(`
+    await db.execute(`
       UPDATE categories
       SET name_ar = COALESCE(?, name_ar),
           name_en = COALESCE(?, name_en),
           color = COALESCE(?, color),
           icon = COALESCE(?, icon)
       WHERE id = ?
-    `).run(
+    `, [
       name_ar !== undefined ? name_ar.trim() : null,
       name_en !== undefined ? name_en.trim() : null,
       color || null,
       icon || null,
       id
-    );
+    ]);
 
-    const updated = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+    const updated = await db.queryOne('SELECT * FROM categories WHERE id = ?', [id]);
     res.json({ success: true, category: updated });
   } catch (error) {
     console.error('Error updating track:', error);
@@ -118,13 +129,12 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE /api/categories/:id
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    // Set category_id in tasks and habits to NULL before deleting
-    db.prepare('UPDATE tasks SET category_id = NULL WHERE category_id = ?').run(id);
-    db.prepare('UPDATE habits SET category_id = NULL WHERE category_id = ?').run(id);
-    db.prepare('DELETE FROM categories WHERE id = ?').run(id);
+    await db.execute('UPDATE tasks SET category_id = NULL WHERE category_id = ?', [id]);
+    await db.execute('UPDATE habits SET category_id = NULL WHERE category_id = ?', [id]);
+    await db.execute('DELETE FROM categories WHERE id = ?', [id]);
 
     res.json({ success: true, message: 'Track deleted successfully' });
   } catch (error) {

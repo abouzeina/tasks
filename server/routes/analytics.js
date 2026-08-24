@@ -1,21 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../db');
 
 // GET /api/analytics/overview
-router.get('/overview', (req, res) => {
+router.get('/overview', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
 
     // 1. Overall Task stats
-    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
-    const completedTasks = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE completed = 1').get().count;
+    const totalTasksRes = await db.queryOne('SELECT COUNT(*) as count FROM tasks');
+    const completedTasksRes = await db.queryOne('SELECT COUNT(*) as count FROM tasks WHERE completed = 1');
+    const totalTasks = totalTasksRes?.count || 0;
+    const completedTasks = completedTasksRes?.count || 0;
     const pendingTasks = totalTasks - completedTasks;
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     // 2. Today's task stats
-    const todayTotal = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE due_date = ? OR (completed = 1 AND date(completed_at) = date(?))').get(today, today).count;
-    const todayCompleted = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE completed = 1 AND (due_date = ? OR date(completed_at) = date(?))').get(today, today).count;
+    const todayTotalRes = await db.queryOne('SELECT COUNT(*) as count FROM tasks WHERE due_date = ? OR (completed = 1 AND date(completed_at) = date(?))', [today, today]);
+    const todayCompletedRes = await db.queryOne('SELECT COUNT(*) as count FROM tasks WHERE completed = 1 AND (due_date = ? OR date(completed_at) = date(?))', [today, today]);
+    const todayTotal = todayTotalRes?.count || 0;
+    const todayCompleted = todayCompletedRes?.count || 0;
     const todayRate = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0;
 
     // 3. Last 7 Days Completion Trend
@@ -27,50 +31,50 @@ router.get('/overview', (req, res) => {
       const dayNameEn = d.toLocaleDateString('en-US', { weekday: 'short' });
       const dayNameAr = d.toLocaleDateString('ar-EG', { weekday: 'short' });
 
-      const completedCount = db.prepare(`
+      const completedCountRes = await db.queryOne(`
         SELECT COUNT(*) as count FROM tasks 
         WHERE completed = 1 AND date(completed_at) = date(?)
-      `).get(dateStr).count;
+      `, [dateStr]);
 
-      const focusMinutes = db.prepare(`
+      const focusMinutesRes = await db.queryOne(`
         SELECT COALESCE(SUM(duration_minutes), 0) as total FROM pomodoro_sessions 
         WHERE mode = 'work' AND date(completed_at) = date(?)
-      `).get(dateStr).total;
+      `, [dateStr]);
 
-      const habitsChecked = db.prepare(`
+      const habitsCheckedRes = await db.queryOne(`
         SELECT COUNT(*) as count FROM habit_logs 
         WHERE completed = 1 AND date = ?
-      `).get(dateStr).count;
+      `, [dateStr]);
 
       last7Days.push({
         date: dateStr,
         dayNameEn,
         dayNameAr,
-        tasksCompleted: completedCount,
-        focusMinutes,
-        habitsChecked
+        tasksCompleted: completedCountRes?.count || 0,
+        focusMinutes: focusMinutesRes?.total || 0,
+        habitsChecked: habitsCheckedRes?.count || 0
       });
     }
 
     // 4. Categories breakdown
-    const categoryStats = db.prepare(`
+    const categoryStats = await db.query(`
       SELECT c.id, c.name_ar, c.name_en, c.color, c.icon,
              COUNT(t.id) as total_tasks,
              SUM(CASE WHEN t.completed = 1 THEN 1 ELSE 0 END) as completed_tasks
       FROM categories c
       LEFT JOIN tasks t ON t.category_id = c.id
       GROUP BY c.id
-    `).all();
+    `);
 
     // 5. Habits overview
-    const totalHabits = db.prepare('SELECT COUNT(*) as count FROM habits').get().count;
-    const todayHabitsDone = db.prepare('SELECT COUNT(*) as count FROM habit_logs WHERE completed = 1 AND date = ?').get(today).count;
+    const totalHabitsRes = await db.queryOne('SELECT COUNT(*) as count FROM habits');
+    const todayHabitsDoneRes = await db.queryOne('SELECT COUNT(*) as count FROM habit_logs WHERE completed = 1 AND date = ?', [today]);
 
     // 6. Pomodoro overview
-    const todayPomoMinutes = db.prepare(`
+    const todayPomoMinutesRes = await db.queryOne(`
       SELECT COALESCE(SUM(duration_minutes), 0) as total FROM pomodoro_sessions 
       WHERE mode = 'work' AND date(completed_at) = date(?)
-    `).get(today).total;
+    `, [today]);
 
     res.json({
       success: true,
@@ -82,9 +86,9 @@ router.get('/overview', (req, res) => {
         todayTotal,
         todayCompleted,
         todayRate,
-        totalHabits,
-        todayHabitsDone,
-        todayPomoMinutes
+        totalHabits: totalHabitsRes?.count || 0,
+        todayHabitsDone: todayHabitsDoneRes?.count || 0,
+        todayPomoMinutes: todayPomoMinutesRes?.total || 0
       },
       last7Days,
       categoryStats

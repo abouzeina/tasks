@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../db');
 
 // GET /api/notes/:date (fetch daily note/journal)
-router.get('/:date', (req, res) => {
+router.get('/:date', async (req, res) => {
   try {
     const { date } = req.params;
-    const note = db.prepare('SELECT * FROM daily_notes WHERE date = ?').get(date);
+    const note = await db.queryOne('SELECT * FROM daily_notes WHERE date = ?', [date]);
     res.json({
       success: true,
       note: note || { date, mood: 'good', content: '', highlights: '' }
@@ -18,12 +18,12 @@ router.get('/:date', (req, res) => {
 });
 
 // POST /api/notes/:date (upsert daily note/journal)
-router.post('/:date', (req, res) => {
+router.post('/:date', async (req, res) => {
   try {
     const { date } = req.params;
     const { mood = 'good', content = '', highlights = '' } = req.body;
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO daily_notes (date, mood, content, highlights, updated_at)
       VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(date) DO UPDATE SET
@@ -31,9 +31,9 @@ router.post('/:date', (req, res) => {
         content = excluded.content,
         highlights = excluded.highlights,
         updated_at = datetime('now', 'localtime')
-    `).run(date, mood, content, highlights);
+    `, [date, mood, content, highlights]);
 
-    const saved = db.prepare('SELECT * FROM daily_notes WHERE date = ?').get(date);
+    const saved = await db.queryOne('SELECT * FROM daily_notes WHERE date = ?', [date]);
     res.json({ success: true, note: saved });
   } catch (error) {
     console.error('Error saving note:', error);

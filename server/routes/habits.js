@@ -1,19 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../db');
 const crypto = require('crypto');
 
 // Helper to compute consecutive streak ending on today or yesterday
-function calculateStreak(habitId) {
-  const logs = db.prepare(`
-    SELECT date FROM habit_logs 
-    WHERE habit_id = ? AND completed = 1 
-    ORDER BY date DESC
-  `).all(habitId);
-
+function calculateStreakFromLogs(logs) {
   if (!logs || logs.length === 0) return { currentStreak: 0, totalCompleted: 0 };
 
-  const logDates = new Set(logs.map(l => l.date));
+  const completedLogs = logs.filter(l => Boolean(l.completed));
+  const logDates = new Set(completedLogs.map(l => l.date));
   let streak = 0;
   
   const today = new Date();
@@ -39,37 +34,43 @@ function calculateStreak(habitId) {
 
   return {
     currentStreak: streak,
-    totalCompleted: logs.length
+    totalCompleted: completedLogs.length
   };
 }
 
-// GET /api/habits (with recent 7 days or custom range)
-router.get('/', (req, res) => {
+// GET /api/habits
+router.get('/', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const habits = db.prepare(`
+    const habits = await db.query(`
       SELECT h.*, c.name_ar as category_name_ar, c.name_en as category_name_en, c.color as category_color
       FROM habits h
       LEFT JOIN categories c ON h.category_id = c.id
       ORDER BY h.created_at ASC
-    `).all();
-
-    const getLogs = db.prepare(`
-      SELECT date, completed FROM habit_logs
-      WHERE habit_id = ? ${startDate && endDate ? 'AND date BETWEEN ? AND ?' : ''}
     `);
 
-    const result = habits.map(habit => {
-      const logs = (startDate && endDate)
-        ? getLogs.all(habit.id, startDate, endDate)
-        : db.prepare('SELECT date, completed FROM habit_logs WHERE habit_id = ?').all(habit.id);
+    let logQuery = 'SELECT * FROM habit_logs';
+    const logParams = [];
+    if (startDate && endDate) {
+      logQuery += ' WHERE date BETWEEN ? AND ?';
+      logParams.push(startDate, endDate);
+    }
+    const allLogs = await db.query(logQuery, logParams);
 
+    const habitLogsMap = {};
+    for (const l of allLogs) {
+      if (!habitLogsMap[l.habit_id]) habitLogsMap[l.habit_id] = [];
+      habitLogsMap[l.habit_id].push(l);
+    }
+
+    const result = habits.map(habit => {
+      const logs = habitLogsMap[habit.id] || [];
       const logsMap = {};
       logs.forEach(l => {
         logsMap[l.date] = Boolean(l.completed);
       });
 
-      const { currentStreak, totalCompleted } = calculateStreak(habit.id);
+      const { currentStreak, totalCompleted } = calculateStreakFromLogs(logs);
 
       return {
         ...habit,
@@ -87,7 +88,7 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/habits (create habit)
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name_ar, name_en, category_id = 'health', color = '#3b82f6', icon = 'Zap' } = req.body;
     if (!name_ar && !name_en) {
@@ -98,12 +99,12 @@ router.post('/', (req, res) => {
     const finalNameAr = name_ar || name_en;
     const finalNameEn = name_en || name_ar;
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO habits (id, name_ar, name_en, category_id, color, icon)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(habitId, finalNameAr, finalNameEn, category_id, color, icon);
+    `, [habitId, finalNameAr, finalNameEn, category_id, color, icon]);
 
-    const habit = db.prepare('SELECT * FROM habits WHERE id = ?').get(habitId);
+    const habit = await db.queryOne('SELECT * FROM habits WHERE id = ?', [habitId]);
     res.status(201).json({
       success: true,
       habit: {
@@ -120,36 +121,37 @@ router.post('/', (req, res) => {
 });
 
 // POST /api/habits/:id/toggle (toggle date check-in)
-router.post('/:id/toggle', (req, res) => {
+router.post('/:id/toggle', async (req, res) => {
   try {
     const { id } = req.params;
-    const { date } = req.body; // YYYY-MM-DD
+    const { date } = req.body;
 
     if (!date) {
       return res.status(400).json({ success: false, error: 'Date is required' });
     }
 
-    const existing = db.prepare('SELECT * FROM habit_logs WHERE habit_id = ? AND date = ?').get(id, date);
+    const existing = await db.queryOne('SELECT * FROM habit_logs WHERE habit_id = ? AND date = ?', [id, date]);
 
     let completed = true;
     if (existing) {
       if (existing.completed) {
-        db.prepare('DELETE FROM habit_logs WHERE habit_id = ? AND date = ?').run(id, date);
+        await db.execute('DELETE FROM habit_logs WHERE habit_id = ? AND date = ?', [id, date]);
         completed = false;
       } else {
-        db.prepare('UPDATE habit_logs SET completed = 1 WHERE habit_id = ? AND date = ?').run(id, date);
+        await db.execute('UPDATE habit_logs SET completed = 1 WHERE habit_id = ? AND date = ?', [id, date]);
         completed = true;
       }
     } else {
       const logId = 'log-' + crypto.randomUUID();
-      db.prepare(`
+      await db.execute(`
         INSERT INTO habit_logs (id, habit_id, date, completed)
         VALUES (?, ?, ?, 1)
-      `).run(logId, id, date);
+      `, [logId, id, date]);
       completed = true;
     }
 
-    const { currentStreak, totalCompleted } = calculateStreak(id);
+    const allLogs = await db.query('SELECT * FROM habit_logs WHERE habit_id = ?', [id]);
+    const { currentStreak, totalCompleted } = calculateStreakFromLogs(allLogs);
 
     res.json({
       success: true,
@@ -166,10 +168,11 @@ router.post('/:id/toggle', (req, res) => {
 });
 
 // DELETE /api/habits/:id
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare('DELETE FROM habits WHERE id = ?').run(id);
+    await db.execute('DELETE FROM habit_logs WHERE habit_id = ?', [id]);
+    await db.execute('DELETE FROM habits WHERE id = ?', [id]);
     res.json({ success: true, message: 'Habit deleted successfully' });
   } catch (error) {
     console.error('Error deleting habit:', error);

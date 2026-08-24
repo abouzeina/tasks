@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const db = require('./database');
 
 const tasksRouter = require('./routes/tasks');
 const habitsRouter = require('./routes/habits');
@@ -31,15 +30,15 @@ app.use('/api/backup', backupRouter);
 const clientDistPath = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDistPath));
 
-// For SPA routing, send index.html for any unknown non-API route
-app.get('*', (req, res) => {
+// For SPA routing, send index.html for any non-API route
+app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'Endpoint not found' });
   }
   const indexPath = path.join(clientDistPath, 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) {
-      res.status(200).send('API Server is running. Client build not found.');
+      res.status(200).send('API Server is running.');
     }
   });
 });

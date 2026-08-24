@@ -1,45 +1,45 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const db = require('../db');
 const crypto = require('crypto');
 
 // GET /api/pomodoro/stats (today & total focus minutes)
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     
     // Today's focus
-    const todayStats = db.prepare(`
+    const todayStats = await db.queryOne(`
       SELECT COUNT(*) as sessionCount, COALESCE(SUM(duration_minutes), 0) as totalMinutes
       FROM pomodoro_sessions
       WHERE mode = 'work' AND date(completed_at) = date(?)
-    `).get(today);
+    `, [today]);
 
     // Total focus all time
-    const totalStats = db.prepare(`
+    const totalStats = await db.queryOne(`
       SELECT COUNT(*) as sessionCount, COALESCE(SUM(duration_minutes), 0) as totalMinutes
       FROM pomodoro_sessions
       WHERE mode = 'work'
-    `).get();
+    `);
 
     // Recent 10 sessions
-    const recentSessions = db.prepare(`
+    const recentSessions = await db.query(`
       SELECT p.*, t.title as task_title
       FROM pomodoro_sessions p
       LEFT JOIN tasks t ON p.task_id = t.id
       ORDER BY p.completed_at DESC
       LIMIT 10
-    `).all();
+    `);
 
     res.json({
       success: true,
       today: {
-        sessions: todayStats.sessionCount || 0,
-        minutes: todayStats.totalMinutes || 0
+        sessions: todayStats?.sessionCount || 0,
+        minutes: todayStats?.totalMinutes || 0
       },
       allTime: {
-        sessions: totalStats.sessionCount || 0,
-        minutes: totalStats.totalMinutes || 0
+        sessions: totalStats?.sessionCount || 0,
+        minutes: totalStats?.totalMinutes || 0
       },
       recentSessions
     });
@@ -50,15 +50,15 @@ router.get('/stats', (req, res) => {
 });
 
 // POST /api/pomodoro/session (log completed session)
-router.post('/session', (req, res) => {
+router.post('/session', async (req, res) => {
   try {
     const { task_id = null, mode = 'work', duration_minutes = 25 } = req.body;
     const sessionId = 'pomo-' + crypto.randomUUID();
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO pomodoro_sessions (id, task_id, mode, duration_minutes)
       VALUES (?, ?, ?, ?)
-    `).run(sessionId, task_id, mode, duration_minutes);
+    `, [sessionId, task_id, mode, duration_minutes]);
 
     res.status(201).json({ success: true, sessionId, message: 'Pomodoro session recorded' });
   } catch (error) {
